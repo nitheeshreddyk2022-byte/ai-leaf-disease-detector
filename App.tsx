@@ -45,8 +45,12 @@ interface AnalysisResult {
   disclaimer: string;
 }
 
+// --- API KEY HANDLING ---
+// Safely access the API key and provide a clear error state if it's missing.
+const apiKey = (typeof process !== 'undefined' && process.env) ? process.env.API_KEY : undefined;
+
 // --- GEMINI API SERVICE ---
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const ai = new GoogleGenAI({ apiKey });
 
 /**
  * Analyzes the provided image using the Gemini API to identify plant diseases.
@@ -785,6 +789,25 @@ const MoonIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w
 const SunIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>);
 const DownloadIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>);
 
+const ApiKeyError = () => (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900 p-4 font-sans">
+      <div className="max-w-2xl w-full text-center bg-white dark:bg-gray-800 p-8 rounded-lg shadow-lg">
+        <svg className="mx-auto h-16 w-16 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+        <h2 className="mt-4 text-2xl font-bold text-gray-900 dark:text-white">Configuration Error</h2>
+        <p className="mt-2 text-md text-gray-600 dark:text-gray-400">
+          The AI service API key is missing. The application cannot function without it.
+        </p>
+        <div className="mt-6 text-left bg-gray-100 dark:bg-gray-700 p-4 rounded-md">
+          <h3 className="font-semibold text-gray-800 dark:text-gray-200">For Developers:</h3>
+          <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+            If you are deploying this application on a platform like Vercel, please ensure that you have set the <code className="bg-gray-200 dark:bg-gray-600 px-1 py-0.5 rounded-sm font-mono text-sm">API_KEY</code> environment variable in your project's settings.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
 
 // --- MAIN APP COMPONENT ---
 export default function App() {
@@ -886,6 +909,10 @@ export default function App() {
       setIsLoadingExplanation(false);
     }
   }, []);
+  
+  if (!apiKey) {
+    return <ApiKeyError />;
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 font-sans p-4 sm:p-6 lg:p-8">
