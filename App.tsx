@@ -45,88 +45,120 @@ interface AnalysisResult {
   disclaimer: string;
 }
 
-// --- GEMINI API SCHEMAS ---
-
-const analysisResponseSchema = {
-  type: Type.OBJECT,
-  properties: {
-    plantIdentification: {
-      type: Type.OBJECT,
-      properties: {
-        species: { type: Type.STRING, description: "Scientific name (and common name) of the plant, e.g., 'Solanum lycopersicum (Tomato)'." },
-        notes: { type: Type.STRING, description: "Brief observation about the plant's cultivar or general state, if relevant." },
-      },
-      required: ['species', 'notes']
-    },
-    diagnosis: {
-      type: Type.OBJECT,
-      properties: {
-        isConfident: { type: Type.BOOLEAN, description: "True if confidence is high (>= 0.80), false otherwise." },
-        confidenceScore: { type: Type.NUMBER, description: "A score from 0.0 to 1.0 indicating confidence in the diagnosis." },
-        diseaseName: { type: Type.STRING, description: "Common name of the identified disease. If healthy, state 'Healthy'." },
-        scientificName: { type: Type.STRING, description: "Scientific name of the pathogen, or 'N/A' if healthy or not applicable." },
-        description: { type: Type.STRING, description: "Detailed description of the visual symptoms observed on the leaf that support the diagnosis." },
-        differentialDiagnosis: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              diseaseName: { type: Type.STRING, description: "Name of a similar disease that was considered but ruled out." },
-              reasoning: { type: Type.STRING, description: "The specific reason why this alternative diagnosis was excluded based on visual evidence." },
-            },
-            required: ['diseaseName', 'reasoning']
-          }
-        }
-      },
-      required: ['isConfident', 'confidenceScore', 'diseaseName', 'scientificName', 'description', 'differentialDiagnosis']
-    },
-    treatmentOptions: {
-      type: Type.OBJECT,
-      properties: {
-        organic: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of organic treatment methods." },
-        chemical: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of chemical treatment methods." },
-      },
-      required: ['organic', 'chemical']
-    },
-    preventiveMeasures: {
-      type: Type.ARRAY,
-      items: { type: Type.STRING },
-      description: "A list of measures to prevent future occurrences of this disease."
-    },
-    disclaimer: { type: Type.STRING, description: "A standard disclaimer stating this is an AI-generated analysis and professional advice should be sought." },
-  },
-  required: ['plantIdentification', 'diagnosis', 'treatmentOptions', 'preventiveMeasures', 'disclaimer']
-};
-
-const visualExplanationSchema = {
-    type: Type.ARRAY,
-    items: {
-        type: Type.OBJECT,
-        properties: {
-            box: {
-                type: Type.ARRAY,
-                items: { type: Type.NUMBER },
-                description: "A list of 4 numbers representing the normalized bounding box coordinates [x_min, y_min, x_max, y_max]."
-            },
-            label: {
-                type: Type.STRING,
-                description: "A very brief label for the bounding box, e.g., 'Necrotic Lesion' or 'Fungal Spores'."
-            }
-        },
-        required: ['box', 'label']
-    }
-};
-
-
 // --- GEMINI API SERVICE ---
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 /**
- * Analyzes an image with Gemini to diagnose plant disease.
- * @returns A promise that resolves with the analysis object.
+ * Analyzes the provided image using the Gemini API to identify plant diseases.
+ * @param imageDataUrl The base64 encoded data URL of the compressed image.
+ * @param mimeType The MIME type of the image ('image/jpeg' or 'image/png').
+ * @returns A promise that resolves with a structured analysis object.
  */
 const analyzeImageWithGemini = async (imageDataUrl: string, mimeType: 'image/jpeg' | 'image/png'): Promise<AnalysisResult> => {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
-    
+  const base64Data = imageDataUrl.split(',')[1];
+  const imagePart = {
+    inlineData: {
+      mimeType: mimeType,
+      data: base64Data,
+    },
+  };
+  const textPart = {
+    text: `You are a world-class plant pathologist. Analyze the provided leaf image with extreme scientific rigor. Your task is not just to diagnose, but to demonstrate a clinical differentiation process.
+
+    **Instructions:**
+    1.  **Visual Evidence Analysis:** Meticulously examine the leaf for all visual abnormalities. Catalog the primary symptoms observed (e.g., lesion type, color, distribution, texture) in the main diagnosis description.
+    2.  **Cross-Reference Simulation:** Imagine you are cross-referencing these symptoms against a comprehensive, curated database of plant pathology images. Based on this, formulate a primary diagnosis.
+    3.  **Differential Diagnosis:** This is the most critical step. Identify at least two other diseases or conditions (the "differential diagnoses") that can present with similar symptoms. For each one, provide concise reasoning explaining why you ruled it out in favor of your primary diagnosis. This reasoning must be based on subtle visual cues present (or absent) in the image.
+    4.  **Final Report:** Compile your findings into the final report. If there is no clear evidence of disease, the primary diagnosis MUST be 'Healthy', and the differential diagnosis array should be empty.
+
+    **Accuracy Mandate:** If the image quality is poor or symptoms are ambiguous, you MUST state low confidence. Prioritize accuracy over making a definitive but potentially incorrect diagnosis.
+
+    Your response must be a single JSON object that strictly adheres to the provided schema.`
+  };
+
+  const responseSchema = {
+    type: Type.OBJECT,
+    properties: {
+      plantIdentification: {
+        type: Type.OBJECT,
+        properties: {
+          species: { type: Type.STRING, description: "The identified species of the plant." },
+          notes: { type: Type.STRING, description: "Additional notes about the plant identification." },
+        },
+        required: ["species", "notes"],
+      },
+      diagnosis: {
+        type: Type.OBJECT,
+        properties: {
+          isConfident: { type: Type.BOOLEAN, description: "Whether the model is confident in its diagnosis." },
+          confidenceScore: { type: Type.NUMBER, description: "A score from 0.0 to 1.0 representing the model's confidence." },
+          diseaseName: { type: Type.STRING, description: "Common name of the disease, or 'Healthy' if no disease is detected." },
+          scientificName: { type: Type.STRING, description: "Scientific name of the disease, or 'N/A' if healthy." },
+          description: { type: Type.STRING, description: "A detailed description of the diagnosis, including the primary symptoms observed." },
+          differentialDiagnosis: {
+            type: Type.ARRAY,
+            description: "A list of other possible diseases that were considered and ruled out.",
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                diseaseName: { type: Type.STRING, description: "The name of the similar-looking disease." },
+                reasoning: { type: Type.STRING, description: "Concise reasoning for ruling out this differential diagnosis based on visual evidence." }
+              },
+              required: ["diseaseName", "reasoning"]
+            }
+          }
+        },
+        required: ["isConfident", "confidenceScore", "diseaseName", "scientificName", "description", "differentialDiagnosis"],
+      },
+      treatmentOptions: {
+        type: Type.OBJECT,
+        properties: {
+          organic: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of organic treatment options." },
+          chemical: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of chemical treatment options." },
+        },
+        required: ["organic", "chemical"],
+      },
+      preventiveMeasures: {
+        type: Type.ARRAY,
+        items: { type: Type.STRING },
+        description: "A list of measures to prevent the disease in the future."
+      },
+      disclaimer: {
+        type: Type.STRING,
+        description: "A disclaimer regarding diagnosis confidence, image quality, or other limitations."
+      }
+    },
+    required: ["plantIdentification", "diagnosis", "treatmentOptions", "preventiveMeasures", "disclaimer"],
+  };
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.5-pro',
+    contents: { parts: [imagePart, textPart] },
+    config: {
+      systemInstruction: "You are a world-renowned botanist and plant pathologist. Your sole purpose is to provide an accurate, evidence-based visual diagnosis of plant diseases from images. Adopt a clinical, skeptical mindset. Your analysis must be precise and scientifically grounded. Crucially, you must differentiate between pathological symptoms, environmental stress, physical damage, and nutrient deficiencies. Your default assumption should be 'Healthy' unless there is clear, undeniable evidence of disease. **Strictly ignore** visual noise such as shadows, water droplets, reflections, and background elements.",
+      temperature: 0.0,
+      thinkingConfig: { thinkingBudget: 16384 },
+      responseMimeType: "application/json",
+      responseSchema: responseSchema,
+    }
+  });
+
+  try {
+    return JSON.parse(response.text);
+  } catch (e) {
+    console.error("Failed to parse JSON from Gemini response:", response.text);
+    throw new Error("The AI returned an invalid response format. Please try again.");
+  }
+};
+
+/**
+ * Simulates Grad-CAM by asking Gemini to identify key regions in the image.
+ * @param imageDataUrl The base64 encoded data URL of the compressed image.
+ * @param mimeType The MIME type of the image.
+ * @param diagnosisText The diagnosis from the first analysis, to provide context.
+ * @returns A promise that resolves with an array of bounding boxes.
+ */
+const getVisualExplanation = async (imageDataUrl: string, mimeType: 'image/jpeg' | 'image/png', diagnosisText: string): Promise<BoundingBox[]> => {
     const base64Data = imageDataUrl.split(',')[1];
     const imagePart = {
         inlineData: {
@@ -135,79 +167,58 @@ const analyzeImageWithGemini = async (imageDataUrl: string, mimeType: 'image/jpe
         },
     };
     const textPart = {
-        text: "Analyze this plant leaf image and provide a detailed diagnosis. Identify the plant species and the disease, if any. Describe the symptoms, provide treatment options, and suggest preventive measures. Also, include a differential diagnosis section explaining why other similar diseases were ruled out. Your response must be in the specified JSON format."
+        text: `Your previous diagnosis was "${diagnosisText}". Now, you must provide irrefutable visual proof for that diagnosis from the same image.
+    **Instructions:**
+    1.  Create bounding boxes that ONLY highlight the specific, identifiable symptoms that justify your diagnosis.
+    2.  **Precision is critical:** Each box must be as tightly cropped as possible around a distinct symptom (e.g., a single lesion, a patch of rust).
+    3.  **Do NOT** box the entire leaf, healthy tissue, shadows, water droplets, or background elements.
+    4.  **Handling Scattered Symptoms:** For numerous, scattered symptoms (like tiny rust spots), you may create a few larger boxes that encompass dense clusters. However, your primary goal is precision, not covering every single speck. Avoid creating large, sparse boxes.
+    5.  The label for each box MUST be a specific, clinical term (e.g., 'Necrotic Lesion', 'Powdery Mildew Colony', 'Aphid Damage').
+    6.  If the diagnosis was 'Healthy', you MUST return an empty array.
+    Your response must be a JSON object containing an array of these bounding boxes, strictly following the provided schema.`,
     };
 
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-pro',
-            contents: { parts: [imagePart, textPart] },
-            config: {
-                systemInstruction: "You are a world-renowned botanist and plant pathologist AI. Your task is to accurately diagnose plant diseases from leaf images and provide comprehensive, actionable advice to gardeners and farmers. You must strictly adhere to the provided JSON schema for your response.",
-                temperature: 0.1,
-                thinkingConfig: { thinkingBudget: 16384 },
-                responseMimeType: "application/json",
-                responseSchema: analysisResponseSchema,
-            }
-        });
-
-        // Use response.text and parse it, as it's guaranteed by the schema to be JSON.
-        return JSON.parse(response.text);
-    } catch (e) {
-        console.error("Error analyzing image with Gemini:", e);
-        if (e instanceof Error) {
-           throw new Error(`Gemini API Error: ${e.message}`);
+    const responseSchema = {
+        type: Type.ARRAY,
+        items: {
+            type: Type.OBJECT,
+            properties: {
+                box: {
+                    type: Type.ARRAY,
+                    items: { type: Type.NUMBER },
+                    description: "An array of four numbers representing the normalized [x_min, y_min, x_max, y_max] coordinates of the bounding box, where values are between 0.0 and 1.0."
+                },
+                label: {
+                    type: Type.STRING,
+                    description: "A brief label for what this box highlights (e.g., 'Fungal Spot', 'Insect Damage')."
+                }
+            },
+            required: ["box", "label"],
         }
-        throw new Error("An unknown error occurred during Gemini API call.");
-    }
-};
-
-/**
- * Gets visual explanations (bounding boxes) from Gemini.
- * @returns A promise that resolves with an array of bounding boxes.
- */
-const getVisualExplanation = async (imageDataUrl: string, mimeType: 'image/jpeg' | 'image/png', diagnosisText: string): Promise<BoundingBox[]> => {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
-
-    const base64Data = imageDataUrl.split(',')[1];
-    const imagePart = {
-      inlineData: {
-            mimeType: mimeType,
-            data: base64Data,
-        },
     };
-    const textPart = { 
-        text: `Based on the diagnosis that the leaf shows symptoms of "${diagnosisText}", identify the most prominent visual indicators of the disease in the image. For each key symptom (like lesions, spots, or mildew), provide a normalized bounding box. Your response must be an array of objects in the specified JSON format.`
-    };
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-pro',
+        contents: { parts: [imagePart, textPart] },
+        config: {
+            temperature: 0.0,
+            responseMimeType: "application/json",
+            responseSchema: responseSchema,
+        }
+    });
 
     try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-pro',
-            contents: { parts: [imagePart, textPart] },
-            config: {
-                temperature: 0.0,
-                responseMimeType: "application/json",
-                responseSchema: visualExplanationSchema,
-            }
-        });
-
         const result = JSON.parse(response.text);
-        
-        // Basic validation of the returned data structure
+        // Validate the structure of the returned boxes
         if (Array.isArray(result)) {
             return result.filter(item => 
                 item.box && Array.isArray(item.box) && item.box.length === 4 && typeof item.label === 'string'
             );
         }
-        console.warn("Visual explanation response was not an array:", result);
         return [];
-
     } catch (e) {
-        console.error("Failed to parse or get visual explanation from Gemini:", e);
-        if (e instanceof Error) {
-            console.error("Gemini Response Text:", (e as any).response?.text);
-        }
-        return []; // Return empty array on failure instead of throwing, as this is non-critical.
+        console.error("Failed to parse JSON from Gemini for visual explanation:", response.text);
+        return []; // Return empty array on failure
     }
 };
 
@@ -621,7 +632,7 @@ const ResultsDisplay: React.FC<{
             onDownload={compressionApplied ? handleDownload : undefined}
         />
         <ImageWithOverlays 
-            title="AI Focus Map" 
+            title="AI Focus Map (Grad-CAM Sim)" 
             image={processedImage} 
             boxes={visualExplanation} 
             isLoading={isLoadingExplanation}
@@ -858,7 +869,7 @@ export default function App() {
       if (result.diagnosis.diseaseName !== 'Healthy') {
           setIsLoadingExplanation(true);
           try {
-            const boxes = await getVisualExplanation(dataUrlForAnalysis, mimeTypeForAnalysis, result.diagnosis.diseaseName);
+            const boxes = await getVisualExplanation(dataUrlForAnalysis, mimeTypeForAnalysis, result.diagnosis.description);
             setVisualExplanation(boxes);
           } catch (explanationError) {
              console.error("Failed to get visual explanation:", explanationError);
